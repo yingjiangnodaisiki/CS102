@@ -642,3 +642,29 @@ docker compose exec web npm run prisma:deploy
 ```
 
 > 说明：目前 `Dockerfile` 直接运行 `next start`，数据库迁移需要你在首次部署时手动执行一次（或后续我可以帮你做成自动启动脚本：启动前自动迁移/自动失败退出）。
+
+## 26) Vercel 免费部署 Demo（新增）
+
+### 26.1 仓库
+- GitHub：`https://github.com/yingjiangnodaisiki/CS102`
+
+### 26.2 构建与迁移
+已在 `package.json` 增加 `vercel-build`，Vercel 会在构建阶段执行：
+- `prisma generate`
+- `prisma migrate deploy`
+- `next build`
+
+### 26.3 必填环境变量（Vercel Project → Settings → Environment Variables）
+- `DATABASE_URL`
+- `JWT_ACCESS_SECRET`
+- `JWT_EMAIL_VERIFY_SECRET`
+- `PAYMENT_CALLBACK_SECRET`（支付回调用，建议填）
+- `NEXT_PUBLIC_APP_URL`（填 Vercel 分配域名，如 `https://xxx.vercel.app`）
+
+可选：
+- `REDIS_URL`（用于分布式锁/限流/队列；不填会降级为内存锁/内存限流）
+- SMTP 相关（邮件功能需要）：`SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM`
+
+### 26.4 免费层注意事项（重要）
+- 文件上传到 `public/uploads/*` 在 Serverless 环境**不可持久化**，仅适合 Demo；生产需接入 OSS/S3。
+- Socket.io 长连接在 Vercel 免费层不适合长期稳定在线（Demo 可以暂时不依赖实时能力）。
