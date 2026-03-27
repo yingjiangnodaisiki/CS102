@@ -20,6 +20,14 @@ const allowedMimeToExt: Record<string, string> = {
 export async function POST(request: NextRequest) {
   try {
     await getAuthUser();
+    // Vercel Serverless 环境无持久化磁盘，public/uploads 写入会失败或不可用
+    if (process.env.VERCEL === "1") {
+      throw new AppError(
+        "FILE_STORAGE_UNAVAILABLE",
+        "当前演示环境不支持头像文件上传，请改用“头像地址（URL）”字段填写公网图片链接",
+        503
+      );
+    }
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {
