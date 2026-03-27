@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 
-export default function ResetPasswordPage() {
+function ResetPasswordClient() {
   const searchParams = useSearchParams();
   const queryToken = useMemo(
     () => searchParams?.get("verificationToken") ?? searchParams?.get("token") ?? "",
@@ -156,5 +156,13 @@ export default function ResetPasswordPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<main className="auth-page"><section className="auth-card"><h1>重置密码</h1><p>加载中...</p></section></main>}>
+      <ResetPasswordClient />
+    </Suspense>
   );
 }
