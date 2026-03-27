@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 interface ProfileData {
@@ -26,7 +26,7 @@ interface CapabilityData {
   }>;
 }
 
-export default function ProfilePage() {
+function ProfileClient() {
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -485,5 +485,13 @@ export default function ProfilePage() {
         </form>
       </section>
     </main>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={<main className="platform-page"><div className="empty-state">资料加载中...</div></main>}>
+      <ProfileClient />
+    </Suspense>
   );
 }
