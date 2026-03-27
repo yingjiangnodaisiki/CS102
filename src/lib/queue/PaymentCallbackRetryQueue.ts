@@ -1,5 +1,5 @@
-import Bull, { Queue } from "bull";
 import { AppError } from "@/lib/errors/AppError";
+import type { Queue } from "bull";
 
 export interface PaymentCallbackRetryJobData {
   orderNo: string;
@@ -29,8 +29,13 @@ function parseRedisUrl(url: string): { host: string; port: number; password?: st
   };
 }
 
-function getPaymentCallbackRetryQueue(): Queue<PaymentCallbackRetryJobData> | null {
+async function getPaymentCallbackRetryQueue(): Promise<Queue<PaymentCallbackRetryJobData> | null> {
   if (paymentCallbackRetryQueue !== undefined) {
+    return paymentCallbackRetryQueue;
+  }
+  // Vercel Serverless 环境下不建议启用 Bull worker，Demo 阶段默认关闭队列能力
+  if (process.env.VERCEL === "1") {
+    paymentCallbackRetryQueue = null;
     return paymentCallbackRetryQueue;
   }
   const redisUrl = process.env.REDIS_URL;
@@ -38,6 +43,8 @@ function getPaymentCallbackRetryQueue(): Queue<PaymentCallbackRetryJobData> | nu
     paymentCallbackRetryQueue = null;
     return paymentCallbackRetryQueue;
   }
+  const bullModule = await import("bull");
+  const Bull = bullModule.default;
   paymentCallbackRetryQueue = new Bull<PaymentCallbackRetryJobData>("payment-callback-retry", {
     redis: parseRedisUrl(redisUrl),
     defaultJobOptions: {
@@ -54,7 +61,7 @@ function getPaymentCallbackRetryQueue(): Queue<PaymentCallbackRetryJobData> | nu
 }
 
 export async function enqueuePaymentCallbackRetry(data: PaymentCallbackRetryJobData): Promise<boolean> {
-  const queue = getPaymentCallbackRetryQueue();
+  const queue = await getPaymentCallbackRetryQueue();
   if (!queue) {
     return false;
   }
