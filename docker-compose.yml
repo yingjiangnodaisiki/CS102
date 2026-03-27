@@ -1,0 +1,21 @@
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: "production"
+      # 必填：托管服务连接串（你在 ECS 上填真实值）
+      DATABASE_URL: "${DATABASE_URL}"
+      REDIS_URL: "${REDIS_URL}"
+      JWT_ACCESS_SECRET: "${JWT_ACCESS_SECRET}"
+      JWT_EMAIL_VERIFY_SECRET: "${JWT_EMAIL_VERIFY_SECRET}"
+      PAYMENT_CALLBACK_SECRET: "${PAYMENT_CALLBACK_SECRET}"
+      NEXT_PUBLIC_APP_URL: "${NEXT_PUBLIC_APP_URL}"
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      SMTP_FROM: "${SMTP_FROM}"
+      EMAIL_VERIFY_RATE_LIMIT_DISABLED: "${EMAIL_VERIFY_RATE_LIMIT_DISABLED:-false}"
+    restart: unless-stopped

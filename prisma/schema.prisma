@@ -1,0 +1,614 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CLIENT
+  DEVELOPER
+  ADMIN
+}
+
+enum ProjectStatus {
+  DRAFT
+  PUBLISHED
+  BIDDING
+  CLOSED
+  AWARDED
+  CANCELLED
+}
+
+enum BidStatus {
+  PENDING
+  WITHDRAWN
+  ACCEPTED
+  REJECTED
+}
+
+enum EscrowOrderStatus {
+  PENDING
+  PAID
+  RELEASED
+  FAILED
+  REFUNDED
+}
+
+enum EscrowLedgerType {
+  FREEZE
+  RELEASE
+  REFUND
+}
+
+enum DisputeStatus {
+  REQUESTED
+  IN_ARBITRATION
+  RESOLVED
+  REJECTED
+}
+
+enum CertificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum ReviewTargetType {
+  PROJECT
+  BID
+  DISPUTE
+  USER
+  PAYMENT
+  CERTIFICATION
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskEventType {
+  BID_COLLUSION
+  PAYMENT_ANOMALY
+  ACCOUNT_ABUSE
+  DISPUTE_SPIKE
+}
+
+enum RiskEventStatus {
+  OPEN
+  IN_REVIEW
+  MITIGATED
+  FALSE_POSITIVE
+}
+
+enum WorkspaceSubmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id                String            @id @default(uuid())
+  email             String            @unique
+  passwordHash      String
+  role              UserRole
+  isEmailVerified   Boolean           @default(false)
+  lastLoginAt       DateTime?
+  clientProfile     ClientProfile?
+  developerProfile  DeveloperProfile?
+  wallet            Wallet?
+  auditLogs         AuditLog[]
+  clientProjects    Project[]
+  developerBids     Bid[]
+  notifications     Notification[]
+  sentMessages      Message[]          @relation("MessageSender")
+  receivedMessages  Message[]          @relation("MessageReceiver")
+  riskEvents        RiskEvent[]        @relation("RiskReporter")
+  operatedRiskEvents RiskEvent[]       @relation("RiskOperator")
+  reviewCases       AdminReviewCase[]  @relation("ReviewOperator")
+  workspaceSubmissions WorkspaceSubmission[] @relation("WorkspaceSubmitter")
+  reviewedWorkspaceSubmissions WorkspaceSubmission[] @relation("WorkspaceReviewer")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([role, createdAt], name: "idx_user_role_created")
+  @@map("users")
+}
+
+model Project {
+  id            String        @id @default(uuid())
+  title         String
+  description   String
+  budgetMin     Decimal       @db.Decimal(10, 2)
+  budgetMax     Decimal       @db.Decimal(10, 2)
+  status        ProjectStatus @default(DRAFT)
+  biddingEndsAt DateTime
+  tags          String[]
+  clientId      String
+  client        User          @relation(fields: [clientId], references: [id])
+  milestones    Milestone[]
+  bids          Bid[]
+  contracts     Contract[]
+  messages      Message[]
+  disputes      DisputeCase[]
+  riskEvents    RiskEvent[]
+  workspaceSubmissions WorkspaceSubmission[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([status, createdAt], name: "idx_project_status_created")
+  @@index([clientId, createdAt], name: "idx_project_client_created")
+  @@map("projects")
+}
+
+model Milestone {
+  id          String   @id @default(uuid())
+  projectId   String
+  title       String
+  amount      Decimal  @db.Decimal(10, 2)
+  dueAt       DateTime
+  isCompleted Boolean  @default(false)
+  project     Project  @relation(fields: [projectId], references: [id])
+  escrowOrders EscrowOrder[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([projectId, dueAt], name: "idx_milestone_project_due")
+  @@map("milestones")
+}
+
+model ClientProfile {
+  id          String  @id @default(uuid())
+  userId      String  @unique
+  companyName String
+  contactName String
+  avatarUrl   String?
+  bio         String?
+  user        User    @relation(fields: [userId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("client_profiles")
+}
+
+model DeveloperProfile {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  displayName       String
+  avatarUrl         String?
+  bio               String?
+  capabilityPassed  Boolean  @default(false)
+  riskDeviceHash    String?
+  isRiskFrozen      Boolean  @default(false)
+  riskFrozenAt      DateTime?
+  user              User     @relation(fields: [userId], references: [id])
+  skills            DeveloperSkill[]
+  portfolios        Portfolio[]
+  certifications    Certification[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([capabilityPassed], name: "idx_developer_capability")
+  @@map("developer_profiles")
+}
+
+model Portfolio {
+  id                 String           @id @default(uuid())
+  developerProfileId String
+  title              String
+  description        String
+  projectUrl         String?
+  repositoryUrl      String?
+  tags               String[]         @default([])
+  developerProfile   DeveloperProfile @relation(fields: [developerProfileId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([developerProfileId, createdAt], name: "idx_portfolio_developer_created")
+  @@map("portfolios")
+}
+
+model Certification {
+  id                 String              @id @default(uuid())
+  developerProfileId String
+  name               String
+  issuer             String
+  certificateNo      String?
+  verifyUrl          String?
+  issuedAt           DateTime
+  expiresAt          DateTime?
+  status             CertificationStatus @default(PENDING)
+  reviewedAt         DateTime?
+  reviewNote         String?
+  developerProfile   DeveloperProfile    @relation(fields: [developerProfileId], references: [id])
+  attachments        CertificationAttachment[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([developerProfileId, status, createdAt], name: "idx_certification_developer_status_created")
+  @@map("certifications")
+}
+
+model CertificationAttachment {
+  id              String        @id @default(uuid())
+  certificationId String
+  fileName        String
+  fileUrl         String
+  fileSize        Int
+  mimeType        String
+  certification   Certification @relation(fields: [certificationId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([certificationId, createdAt], name: "idx_cert_attachment_cert_created")
+  @@map("certification_attachments")
+}
+
+model Skill {
+  id          String           @id @default(uuid())
+  code        String           @unique
+  name        String
+  developers  DeveloperSkill[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("skills")
+}
+
+model DeveloperSkill {
+  id                 String           @id @default(uuid())
+  developerProfileId String
+  skillId            String
+  isVerified         Boolean          @default(false)
+  passedAt           DateTime?
+  developerProfile   DeveloperProfile @relation(fields: [developerProfileId], references: [id])
+  skill              Skill            @relation(fields: [skillId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([developerProfileId, skillId], name: "uniq_developer_skill")
+  @@index([isVerified], name: "idx_developer_skill_verified")
+  @@map("developer_skills")
+}
+
+model Wallet {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  availableBalance  Decimal  @default(0) @db.Decimal(18, 2)
+  frozenBalance     Decimal  @default(0) @db.Decimal(18, 2)
+  currency          String   @default("CNY")
+  version           Int      @default(1)
+  user              User     @relation(fields: [userId], references: [id])
+  transactions      WalletTransaction[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id            String   @id @default(uuid())
+  walletId      String
+  amount        Decimal  @db.Decimal(18, 2)
+  direction     String
+  reason        String
+  referenceId   String?
+  idempotencyKey String? @unique
+  wallet        Wallet   @relation(fields: [walletId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([walletId, createdAt], name: "idx_wallet_tx_wallet_created")
+  @@map("wallet_transactions")
+}
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  userId        String?
+  action        String
+  resource      String
+  resourceId    String?
+  status        String
+  requestIp     String?
+  requestDevice String?
+  details       Json?
+  user          User?    @relation(fields: [userId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([action, createdAt], name: "idx_audit_action_created")
+  @@map("audit_logs")
+}
+
+model Bid {
+  id              String      @id @default(uuid())
+  projectId       String
+  developerId     String
+  amount          Decimal     @db.Decimal(10, 2)
+  proposal        String
+  expectedDays    Int
+  status          BidStatus   @default(PENDING)
+  submittedIp     String?
+  submittedDevice String?
+  project         Project     @relation(fields: [projectId], references: [id])
+  developer       User        @relation(fields: [developerId], references: [id])
+  attachments     BidAttachment[]
+  riskEvents      RiskEvent[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([projectId, createdAt], name: "idx_bid_project_created")
+  @@index([developerId, createdAt], name: "idx_bid_developer_created")
+  @@index([status, createdAt], name: "idx_bid_status_created")
+  @@map("bids")
+}
+
+model BidAttachment {
+  id          String   @id @default(uuid())
+  bidId       String
+  fileName    String
+  fileUrl     String
+  fileSize    Int
+  mimeType    String
+  bid         Bid      @relation(fields: [bidId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([bidId, createdAt], name: "idx_bid_attachment_bid_created")
+  @@map("bid_attachments")
+}
+
+model Contract {
+  id            String      @id @default(uuid())
+  projectId     String
+  clientId      String
+  developerId   String
+  totalAmount   Decimal     @db.Decimal(10, 2)
+  status        String      @default("ACTIVE")
+  project       Project     @relation(fields: [projectId], references: [id])
+  escrows       EscrowOrder[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([projectId], name: "uniq_contract_project")
+  @@index([clientId, createdAt], name: "idx_contract_client_created")
+  @@index([developerId, createdAt], name: "idx_contract_developer_created")
+  @@map("contracts")
+}
+
+model EscrowOrder {
+  id              String            @id @default(uuid())
+  orderNo         String            @unique
+  contractId      String
+  milestoneId     String?
+  amount          Decimal           @db.Decimal(10, 2)
+  status          EscrowOrderStatus @default(PENDING)
+  providerTradeNo String?           @unique
+  paidAt          DateTime?
+  releasedAt      DateTime?
+  contract        Contract          @relation(fields: [contractId], references: [id])
+  milestone       Milestone?        @relation(fields: [milestoneId], references: [id])
+  ledgers         EscrowLedger[]
+  disputes        DisputeCase[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([contractId, createdAt], name: "idx_escrow_contract_created")
+  @@index([status, createdAt], name: "idx_escrow_status_created")
+  @@map("escrow_orders")
+}
+
+model EscrowLedger {
+  id               String           @id @default(uuid())
+  escrowOrderId    String
+  type             EscrowLedgerType
+  amount           Decimal          @db.Decimal(10, 2)
+  fromWalletId     String
+  toWalletId       String?
+  status           String
+  details          Json?
+  escrowOrder      EscrowOrder      @relation(fields: [escrowOrderId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([escrowOrderId, createdAt], name: "idx_escrow_ledger_order_created")
+  @@map("escrow_ledgers")
+}
+
+model DisputeCase {
+  id                  String       @id @default(uuid())
+  projectId           String
+  escrowOrderId       String?
+  amount              Decimal      @db.Decimal(10, 2)
+  reason              String
+  status              DisputeStatus @default(REQUESTED)
+  clientRequested     Boolean      @default(false)
+  developerRequested  Boolean      @default(false)
+  autoTriggered       Boolean      @default(false)
+  arbitrationStartedAt DateTime?
+  resolvedAt          DateTime?
+  resolution          String?
+  project             Project      @relation(fields: [projectId], references: [id])
+  escrowOrder         EscrowOrder? @relation(fields: [escrowOrderId], references: [id])
+  reviewCases         AdminReviewCase[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([projectId, createdAt], name: "idx_dispute_project_created")
+  @@index([status, createdAt], name: "idx_dispute_status_created")
+  @@map("dispute_cases")
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  title       String
+  content     String
+  type        String
+  metadata    Json?
+  readAt      DateTime?
+  user        User     @relation(fields: [userId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([userId, createdAt], name: "idx_notification_user_created")
+  @@index([type, createdAt], name: "idx_notification_type_created")
+  @@map("notifications")
+}
+
+model Message {
+  id          String   @id @default(uuid())
+  projectId   String
+  senderId    String
+  receiverId  String
+  content     String
+  messageType String   @default("TEXT")
+  metadata    Json?
+  readAt      DateTime?
+  project     Project  @relation(fields: [projectId], references: [id])
+  sender      User     @relation("MessageSender", fields: [senderId], references: [id])
+  receiver    User     @relation("MessageReceiver", fields: [receiverId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([projectId, createdAt], name: "idx_message_project_created")
+  @@index([senderId, createdAt], name: "idx_message_sender_created")
+  @@index([receiverId, readAt, createdAt], name: "idx_message_receiver_read_created")
+  @@map("messages")
+}
+
+model RiskEvent {
+  id              String          @id @default(uuid())
+  type            RiskEventType
+  level           RiskLevel
+  status          RiskEventStatus @default(OPEN)
+  title           String
+  description     String
+  projectId       String?
+  bidId           String?
+  reporterUserId  String?
+  operatorUserId  String?
+  resolvedAt      DateTime?
+  resolutionNote  String?
+  metadata        Json?
+  project         Project?        @relation(fields: [projectId], references: [id])
+  bid             Bid?            @relation(fields: [bidId], references: [id])
+  reporterUser    User?           @relation("RiskReporter", fields: [reporterUserId], references: [id])
+  operatorUser    User?           @relation("RiskOperator", fields: [operatorUserId], references: [id])
+  reviewCases     AdminReviewCase[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([type, createdAt], name: "idx_risk_type_created")
+  @@index([level, status, createdAt], name: "idx_risk_level_status_created")
+  @@index([projectId, createdAt], name: "idx_risk_project_created")
+  @@map("risk_events")
+}
+
+model AdminReviewCase {
+  id              String           @id @default(uuid())
+  targetType      ReviewTargetType
+  targetId        String
+  title           String
+  description     String
+  status          ReviewStatus     @default(PENDING)
+  riskEventId     String?
+  disputeCaseId   String?
+  operatorUserId  String?
+  decidedAt       DateTime?
+  decisionNote    String?
+  riskEvent       RiskEvent?       @relation(fields: [riskEventId], references: [id])
+  disputeCase     DisputeCase?     @relation(fields: [disputeCaseId], references: [id])
+  operatorUser    User?            @relation("ReviewOperator", fields: [operatorUserId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([targetType, status, createdAt], name: "idx_review_target_status_created")
+  @@index([riskEventId], name: "idx_review_risk_event")
+  @@map("admin_review_cases")
+}
+
+model WorkspaceSubmission {
+  id             String                    @id @default(uuid())
+  projectId      String
+  submitterUserId String
+  reviewerUserId String?
+  title          String
+  description    String?
+  fileName       String
+  fileUrl        String
+  fileSize       Int
+  mimeType       String
+  status         WorkspaceSubmissionStatus @default(PENDING)
+  reviewNote     String?
+  reviewedAt     DateTime?
+  project        Project                   @relation(fields: [projectId], references: [id])
+  submitterUser  User                      @relation("WorkspaceSubmitter", fields: [submitterUserId], references: [id])
+  reviewerUser   User?                     @relation("WorkspaceReviewer", fields: [reviewerUserId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([projectId, status, createdAt], name: "idx_workspace_project_status_created")
+  @@index([submitterUserId, createdAt], name: "idx_workspace_submitter_created")
+  @@map("workspace_submissions")
+}
