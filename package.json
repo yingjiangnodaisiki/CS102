@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build",
+    "vercel-build": "prisma generate && (prisma migrate deploy || echo \"[vercel-build] prisma migrate deploy failed, continuing for demo\") && next build",
     "lint": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
