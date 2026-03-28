@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import type { ChangeEvent, FormEvent } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 interface ProfileData {
@@ -146,7 +147,7 @@ function ProfileClient() {
     }
   };
 
-  const handleUploadAvatar = async (file: File) => {
+  const handleUploadAvatar = async (file: Blob) => {
     setUploading(true);
     setProfileError(null);
     try {
@@ -157,8 +158,12 @@ function ProfileClient() {
         credentials: "include",
         body: formData
       });
-      const result = (await response.json()) as { message?: string; data?: { url: string } };
-      if (!response.ok || !result.data?.url) {
+      const result = (await response.json()) as {
+        code?: string;
+        message?: string;
+        data?: { url?: string };
+      };
+      if (!response.ok || result.code !== "SUCCESS" || typeof result.data?.url !== "string") {
         setProfileError(result.message ?? "头像上传失败");
         return;
       }
@@ -332,11 +337,12 @@ function ProfileClient() {
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) {
-                  void handleUploadAvatar(file);
+              onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                const picked = event.target.files?.[0];
+                if (picked) {
+                  void handleUploadAvatar(picked);
                 }
+                event.target.value = "";
               }}
             />
           </label>

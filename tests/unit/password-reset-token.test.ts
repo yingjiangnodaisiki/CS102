@@ -29,4 +29,16 @@ describe("email verification token util", () => {
     expect(payload.purpose).toBe("FORGOT_PASSWORD");
     expect(payload.fingerprint).toBe(getPasswordHashFingerprint("hash-value"));
   });
+
+  it("should sign and verify register-email token", () => {
+    const token = signEmailVerificationToken({
+      userId: "user-2",
+      email: "reg@example.com",
+      passwordHash: "hash-2",
+      purpose: "REGISTER_EMAIL"
+    });
+    const payload = verifyEmailVerificationToken(token, "REGISTER_EMAIL");
+    expect(payload.purpose).toBe("REGISTER_EMAIL");
+    expect(payload.userId).toBe("user-2");
+  });
 });

@@ -44,12 +44,21 @@ export default function RegisterPage() {
           profile
         })
       });
-      const result = (await response.json()) as { code: string; message?: string };
+      const result = (await response.json()) as {
+        code: string;
+        message?: string;
+        data?: { emailVerificationSent?: boolean; devAutoVerified?: boolean };
+      };
       if (!response.ok) {
         setError(result.message ?? "注册失败，请检查输入");
         return;
       }
-      router.push("/dashboard");
+      if (result.data?.devAutoVerified) {
+        router.push("/login?dev=1");
+        router.refresh();
+        return;
+      }
+      router.push("/register/check-email");
       router.refresh();
     } catch {
       setError("网络异常，请稍后重试");
@@ -62,7 +71,7 @@ export default function RegisterPage() {
     <main className="auth-page">
       <section className="auth-card">
         <h1>创建账户</h1>
-        <p>注册后将自动登录，并进入平台工作台。</p>
+        <p>注册后需完成邮箱验证，验证通过后方可登录。</p>
         <form onSubmit={handleSubmit} className="auth-form">
           <label>
             邮箱
@@ -129,7 +138,7 @@ export default function RegisterPage() {
           )}
           {error ? <div className="form-error">{error}</div> : null}
           <button type="submit" className="btn btn-primary auth-submit-btn" disabled={submitting}>
-            {submitting ? "注册中..." : "注册并登录"}
+            {submitting ? "注册中..." : "注册"}
           </button>
         </form>
         <div className="auth-footer">

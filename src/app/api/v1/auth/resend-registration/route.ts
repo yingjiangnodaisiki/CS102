@@ -1,8 +1,7 @@
 import { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 import { AppError } from "@/lib/errors/AppError";
-import { registerSchema } from "@/lib/validations/auth";
+import { resendRegistrationVerificationSchema } from "@/lib/validations/auth";
 import { fail, ok } from "@/lib/utils/api-response";
 import { AuthService } from "@/lib/services/auth/AuthService";
 import { getRequestMeta } from "@/lib/utils/request-meta";
@@ -16,20 +15,15 @@ import { buildAppBaseUrlFromRequest } from "@/lib/utils/app-base-url";
 export async function POST(request: NextRequest) {
   try {
     const body: unknown = await request.json();
-    const data = registerSchema.parse(body);
+    const data = resendRegistrationVerificationSchema.parse(body);
     const meta = await getRequestMeta();
-
-    const result = await AuthService.register({
+    await AuthService.resendRegistrationVerification({
       email: data.email,
-      password: data.password,
-      role: data.role,
-      profile: data.profile,
       requestIp: meta.ip,
       requestDevice: meta.device,
       appBaseUrl: buildAppBaseUrlFromRequest(request)
     });
-
-    return ok(result, 201);
+    return ok({ accepted: true }, 200);
   } catch (error: unknown) {
     if (error instanceof ZodError) {
       return fail("VALIDATION_ERROR", "参数校验失败", 422, { issues: error.issues });
@@ -37,13 +31,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof AppError) {
       return fail(error.code, error.message, error.statusCode, error.details);
     }
-    if (
-      error instanceof Prisma.PrismaClientInitializationError ||
-      (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P1001")
-    ) {
-      return fail("DB_UNAVAILABLE", "数据库连接不可用，请先启动 PostgreSQL 服务", 503);
-    }
-    console.error("register route unhandled error:", error);
+    console.error("resend-registration route unhandled error:", error);
     return fail("INTERNAL_ERROR", "系统异常", 500);
   }
 }

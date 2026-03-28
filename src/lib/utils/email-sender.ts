@@ -16,6 +16,14 @@ interface MailConfig {
   from: string;
 }
 
+export function isMailConfigured(): boolean {
+  try {
+    return getMailConfig() !== null;
+  } catch {
+    return false;
+  }
+}
+
 function getMailConfig(): MailConfig | null {
   const host = process.env.SMTP_HOST;
   const portRaw = process.env.SMTP_PORT;

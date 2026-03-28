@@ -660,12 +660,37 @@ docker compose exec web npm run prisma:deploy
 - `JWT_EMAIL_VERIFY_SECRET`
 - `PAYMENT_CALLBACK_SECRET`（支付回调用，建议填）
 - `NEXT_PUBLIC_APP_URL`（填 Vercel 分配域名，如 `https://xxx.vercel.app`）
+- **SMTP（生产注册必填）**：`SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`  
+  生产环境未配置 SMTP 时 **无法注册**（避免产生永远无法登录的未验证账号）。本地开发未配置 SMTP 时，注册会自动标记邮箱已验证，便于调试。
 
 可选：
 - `REDIS_URL`（用于分布式锁/限流/队列；不填会降级为内存锁/内存限流）
-- `BLOB_READ_WRITE_TOKEN`（**头像文件上传**：Vercel Dashboard → **Storage** → **Blob** → 创建 Blob Store → 将 **Read/Write Token** 加到环境变量；接口 `POST /api/v1/files/avatar` 会写入 Blob 并返回公网 URL）
-- SMTP 相关（邮件功能需要）：`SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM`
+- `BLOB_READ_WRITE_TOKEN` 或 `VERCEL_BLOB_READ_WRITE_TOKEN`（**头像文件上传**：Vercel Dashboard → **Storage** → **Blob** → 创建 Blob Store → 将 **Read/Write Token** 加到环境变量；接口 `POST /api/v1/files/avatar` 会写入 Blob 并返回公网 URL；部分项目控制台可能生成 `VERCEL_BLOB_READ_WRITE_TOKEN`，二者任选其一配置即可）
+- `EMAIL_VERIFY_RATE_LIMIT_DISABLED=true`（仅调试：关闭邮箱验证链接请求限流）
+
+### 26.3.1 注册与邮箱验证流程
+- 注册成功后 **不再自动登录**；用户需打开邮件中的链接访问 `/verify-email?token=...`，验证通过后再登录。
+- 未验证时登录会返回 `EMAIL_NOT_VERIFIED`，登录页可点 **重发验证邮件**（受限流保护）。
+- 部署新迁移 `mark_existing_users_email_verified` 后，**历史用户**会被批量标记为已验证，避免全员被挡在登录外。
+
+### 26.3.2 发信域名与 DNS（SPF / DKIM / DMARC）
+「DNS 保护」在邮件场景通常指：**让收件方（QQ/163/Gmail 等）信任你的发件域名**，减少进垃圾箱或被拒收。需在 **发件域名**（`SMTP_FROM` 里的域名，如 `boki.help`）的 DNS 服务商处添加记录（具体值以你使用的 SMTP 服务商控制台为准，如阿里云邮件推送、SendGrid、Resend、企业邮箱等）：
+- **SPF**：TXT 记录，授权哪些服务器可以代该域名发信。
+- **DKIM**：TXT 记录（或 CNAME），用于签名验证。
+- **DMARC**：`_dmarc` 子域 TXT，声明对齐策略与报告邮箱。
+
+站点访问域名（如 Vercel 自定义域）的 HTTPS 由 Vercel 自动处理；若需要 **WAF / DDoS 防护**，需在 DNS 层接入 Cloudflare 等专业服务（与邮件 DNS 是两套配置）。
 
 ### 26.4 免费层注意事项（重要）
-- **头像上传**：Vercel 上已接入 `@vercel/blob`；配置 `BLOB_READ_WRITE_TOKEN` 后即可使用本地上传控件。未配置时仍可填「头像地址（URL）」。自建 Docker/本地开发仍写入 `public/uploads/avatars`。
+- **头像上传**：Vercel 上已接入 `@vercel/blob`，并对 **MIME 为空** 的移动端图片做了魔数校验与扩展名推断。请确认环境变量中已配置 **Blob Token** 且 **重新部署** 后生效。未配置时仍可填「头像地址（URL）」。自建 Docker/本地开发仍写入 `public/uploads/avatars`。
 - Socket.io 长连接在 Vercel 免费层不适合长期稳定在线（Demo 可以暂时不依赖实时能力）。
+
+### 26.5 安全加固（CORS / 响应头 / 管理端）
+
+| 优先级 | 项 | 实现说明 |
+|--------|----|----------|
+| **P1** | CORS 限制具体域名 | Next.js 16 使用 `src/proxy.ts`（勿与旧版 `middleware.ts` 并存）。其中对 `/api/*` 在 **Origin 在白名单内** 时设置 `Access-Control-Allow-*`。白名单 = `ALLOWED_ORIGINS`（逗号分隔）+ `NEXT_PUBLIC_APP_URL`；开发环境额外允许 `http://localhost:3000`、`http://127.0.0.1:3000`。**生产环境**若两者都未配置，则不对任何跨域 Origin 反射。多域名（如 `www` 与根域、`*.vercel.app` Preview）请显式写入 `ALLOWED_ORIGINS`。 |
+| **P2** | 弱化部署指纹 | `next.config.mjs` 已设 `poweredByHeader: false`（去掉 `X-Powered-By: Next.js`），并增加 `Referrer-Policy`、`X-Content-Type-Options`、`Permissions-Policy`。`proxy` 对 API 响应会删除 `x-powered-by`（若仍存在）。**说明**：托管在 Vercel 时，边缘层仍可能添加 `x-vercel-id` 等字段，应用代码**无法保证完全移除**，若需更强隐藏需换自建反代或与企业支持沟通。 |
+| **P2** | `/admin` 服务端鉴权 | `src/app/(platform)/admin/layout.tsx` 在 **服务端**校验 `access_token` 且 `role === ADMIN`，否则重定向登录或 `/dashboard`（管理 API 仍保持各路由内 `getAuthUser` + 角色校验）。 |
+| **P3** | Security Checkpoint 频率 | 运维项：在 Vercel Analytics / 日志中关注异常流量与人机验证触发；结合 WAF（如前置 Cloudflare）降低误伤真实用户。 |
+| **P3** | 授权深度扫描 | 运维项：按节奏对公网环境做经授权的渗透/依赖扫描（如 `npm audit`、SAST/DAST），与发版节奏挂钩。 |

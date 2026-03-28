@@ -10,7 +10,7 @@ import {
   signEmailVerificationToken,
   verifyEmailVerificationToken
 } from "@/lib/utils/email-verification-token";
-import { sendEmail } from "@/lib/utils/email-sender";
+import { isMailConfigured, sendEmail } from "@/lib/utils/email-sender";
 
 interface RegisterCommand {
   email: string;
@@ -23,6 +23,7 @@ interface RegisterCommand {
   };
   requestIp?: string | null;
   requestDevice?: string | null;
+  appBaseUrl?: string | null;
 }
 
 interface LoginCommand {
@@ -81,10 +82,20 @@ export class AuthService {
   private static async sendVerificationEmail(input: {
     email: string;
     verifyUrl: string;
-    purpose: "FORGOT_PASSWORD" | "CHANGE_PASSWORD";
+    purpose: "FORGOT_PASSWORD" | "CHANGE_PASSWORD" | "REGISTER_EMAIL";
   }): Promise<void> {
-    const title = input.purpose === "FORGOT_PASSWORD" ? "重置密码邮箱验证" : "修改密码邮箱验证";
-    const actionText = input.purpose === "FORGOT_PASSWORD" ? "前往重置密码" : "前往确认修改密码";
+    const title =
+      input.purpose === "FORGOT_PASSWORD"
+        ? "重置密码邮箱验证"
+        : input.purpose === "CHANGE_PASSWORD"
+          ? "修改密码邮箱验证"
+          : "注册邮箱验证";
+    const actionText =
+      input.purpose === "FORGOT_PASSWORD"
+        ? "前往重置密码"
+        : input.purpose === "CHANGE_PASSWORD"
+          ? "前往确认修改密码"
+          : "完成邮箱验证";
     const text = [
       `你正在进行${title}。`,
       "验证链接有效期 15 分钟，请尽快完成操作：",
@@ -104,7 +115,40 @@ export class AuthService {
     });
   }
 
-  static async register(command: RegisterCommand): Promise<AuthResult> {
+  private static async sendRegistrationVerificationEmail(input: {
+    email: string;
+    userId: string;
+    passwordHash: string;
+    appBaseUrl?: string | null;
+  }): Promise<void> {
+    const token = signEmailVerificationToken({
+      userId: input.userId,
+      email: input.email,
+      passwordHash: input.passwordHash,
+      purpose: "REGISTER_EMAIL"
+    });
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? input.appBaseUrl ?? "http://localhost:3000";
+    const verifyUrl = `${baseUrl.replace(/\/$/, "")}/verify-email?token=${encodeURIComponent(token)}`;
+    await this.sendVerificationEmail({
+      email: input.email,
+      verifyUrl,
+      purpose: "REGISTER_EMAIL"
+    });
+  }
+
+  static async register(command: RegisterCommand): Promise<{
+    user: Pick<User, "id" | "email" | "role">;
+    emailVerificationSent: boolean;
+    devAutoVerified: boolean;
+  }> {
+    if (process.env.NODE_ENV === "production" && !isMailConfigured()) {
+      throw new AppError(
+        "SMTP_CONFIG_MISSING",
+        "未配置发信服务（SMTP），无法完成注册邮箱验证。请配置 SMTP_* 环境变量后重试。",
+        503
+      );
+    }
+
     const existed = await UserRepository.findByEmail(command.email);
     if (existed) {
       await AuditLogService.record({
@@ -142,13 +186,37 @@ export class AuthService {
       details: { role: createdUser.role }
     });
 
+    let emailVerificationSent = false;
+    let devAutoVerified = false;
+
+    if (isMailConfigured()) {
+      try {
+        await this.sendRegistrationVerificationEmail({
+          email: createdUser.email,
+          userId: createdUser.id,
+          passwordHash: createdUser.passwordHash,
+          appBaseUrl: command.appBaseUrl
+        });
+        emailVerificationSent = true;
+      } catch (err: unknown) {
+        console.error("registration verification email failed:", err);
+      }
+    } else if (process.env.NODE_ENV !== "production") {
+      await prisma.user.update({
+        where: { id: createdUser.id },
+        data: { isEmailVerified: true }
+      });
+      devAutoVerified = true;
+    }
+
     return {
       user: {
         id: createdUser.id,
         email: createdUser.email,
         role: createdUser.role
       },
-      accessToken: signAccessToken({ userId: createdUser.id, role: createdUser.role })
+      emailVerificationSent,
+      devAutoVerified
     };
   }
 
@@ -171,6 +239,24 @@ export class AuthService {
         details: { reason: "PASSWORD_NOT_MATCHED" }
       });
       throw new AppError("AUTH_FAILED", "邮箱或密码错误", 401);
+    }
+
+    if (!existed.isEmailVerified) {
+      await AuditLogService.record({
+        userId: existed.id,
+        action: "AUTH_LOGIN",
+        resource: "USER",
+        resourceId: existed.id,
+        status: "FAILED",
+        requestIp: command.requestIp,
+        requestDevice: command.requestDevice,
+        details: { reason: "EMAIL_NOT_VERIFIED" }
+      });
+      throw new AppError(
+        "EMAIL_NOT_VERIFIED",
+        "请先完成邮箱验证后再登录。若未收到邮件，可在登录页使用「重发验证邮件」。",
+        403
+      );
     }
 
     await prisma.user.update({
@@ -375,5 +461,76 @@ export class AuthService {
       requestIp: command.requestIp,
       requestDevice: command.requestDevice
     });
+  }
+
+  static async verifyRegistrationEmail(command: { token: string }): Promise<void> {
+    const payload = verifyEmailVerificationToken(command.token, "REGISTER_EMAIL");
+    const user = await UserRepository.findById(payload.userId);
+    if (!user || user.email !== payload.email) {
+      throw new AppError("EMAIL_VERIFICATION_INVALID", "邮箱验证令牌无效或已过期", 400);
+    }
+    const currentFingerprint = getPasswordHashFingerprint(user.passwordHash);
+    if (currentFingerprint !== payload.fingerprint) {
+      throw new AppError(
+        "EMAIL_VERIFICATION_EXPIRED",
+        "验证链接已失效（例如已修改密码），请使用「重发验证邮件」获取新链接",
+        400
+      );
+    }
+    if (user.isEmailVerified) {
+      return;
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { isEmailVerified: true }
+    });
+    await AuditLogService.record({
+      userId: user.id,
+      action: "AUTH_EMAIL_VERIFIED",
+      resource: "USER",
+      resourceId: user.id,
+      status: "SUCCESS",
+      details: { purpose: "REGISTER_EMAIL" }
+    });
+  }
+
+  static async resendRegistrationVerification(command: {
+    email: string;
+    requestIp?: string | null;
+    requestDevice?: string | null;
+    appBaseUrl?: string | null;
+  }): Promise<{ accepted: true }> {
+    const resourceKey = `REGISTER_RESEND:${command.email}`;
+    await this.ensureEmailVerifyRateLimit(resourceKey);
+
+    const user = await UserRepository.findByEmail(command.email);
+
+    await AuditLogService.record({
+      userId: user?.id,
+      action: "AUTH_EMAIL_VERIFY_REQUEST",
+      resource: "USER",
+      resourceId: resourceKey,
+      status: "SUCCESS",
+      requestIp: command.requestIp,
+      requestDevice: command.requestDevice,
+      details: { email: command.email, purpose: "REGISTER_RESEND", found: Boolean(user) }
+    });
+
+    if (!user || user.isEmailVerified || !isMailConfigured()) {
+      return { accepted: true };
+    }
+
+    try {
+      await this.sendRegistrationVerificationEmail({
+        email: user.email,
+        userId: user.id,
+        passwordHash: user.passwordHash,
+        appBaseUrl: command.appBaseUrl
+      });
+    } catch (err: unknown) {
+      console.error("resend registration verification email failed:", err);
+    }
+
+    return { accepted: true };
   }
 }

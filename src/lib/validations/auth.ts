@@ -56,6 +56,14 @@ export const forgotPasswordSchema = z.object({
   email: emailSchema
 });
 
+export const verifyRegistrationEmailSchema = z.object({
+  token: z.string().trim().min(1, "验证令牌不能为空")
+});
+
+export const resendRegistrationVerificationSchema = z.object({
+  email: emailSchema
+});
+
 export const resetPasswordSchema = z.object({
   verificationToken: z.string().trim().min(1, "邮箱验证令牌不能为空"),
   newPassword: z.string().min(8, "密码至少8位").max(64, "密码不能超过64位")
@@ -80,5 +88,7 @@ export const changePasswordSchema = z
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type VerifyRegistrationEmailInput = z.infer<typeof verifyRegistrationEmailSchema>;
+export type ResendRegistrationVerificationInput = z.infer<typeof resendRegistrationVerificationSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

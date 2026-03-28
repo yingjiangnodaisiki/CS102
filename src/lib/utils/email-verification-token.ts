@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 import { AppError } from "@/lib/errors/AppError";
 
-type EmailVerificationPurpose = "FORGOT_PASSWORD" | "CHANGE_PASSWORD";
+export type EmailVerificationPurpose = "FORGOT_PASSWORD" | "CHANGE_PASSWORD" | "REGISTER_EMAIL";
 
-interface EmailVerificationPayload {
+export interface EmailVerificationPayload {
   userId: string;
   email: string;
   purpose: EmailVerificationPurpose;
@@ -19,12 +19,15 @@ export function getPasswordHashFingerprint(passwordHash: string): string {
   return crypto.createHash("sha256").update(passwordHash).digest("hex").slice(0, 40);
 }
 
-export function signEmailVerificationToken(input: {
-  userId: string;
-  email: string;
-  purpose: EmailVerificationPurpose;
-  passwordHash: string;
-}): string {
+export function signEmailVerificationToken(
+  input: {
+    userId: string;
+    email: string;
+    purpose: EmailVerificationPurpose;
+    passwordHash: string;
+  },
+  options?: { expiresIn?: string }
+): string {
   const secret = getEmailVerificationSecret();
   if (!secret) {
     throw new AppError("CONFIG_MISSING", "JWT_EMAIL_VERIFY_SECRET is required", 500);
@@ -35,7 +38,10 @@ export function signEmailVerificationToken(input: {
     purpose: input.purpose,
     fingerprint: getPasswordHashFingerprint(input.passwordHash)
   };
-  return jwt.sign(payload, secret, { expiresIn: "15m" });
+  const expiresIn =
+    options?.expiresIn ?? (input.purpose === "REGISTER_EMAIL" ? "24h" : "15m");
+  const signOptions = { expiresIn } as SignOptions;
+  return jwt.sign(payload, secret, signOptions);
 }
 
 export function verifyEmailVerificationToken(
