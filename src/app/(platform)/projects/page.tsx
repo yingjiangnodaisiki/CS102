@@ -19,6 +19,8 @@ interface ProjectItem {
   canBid: boolean;
 }
 
+type UserRole = "CLIENT" | "DEVELOPER" | "ADMIN" | null;
+
 export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +29,7 @@ export default function ProjectsPage() {
   const [queryKeyword, setQueryKeyword] = useState("");
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [tab, setTab] = useState<"ALL" | "CAN_BID" | "MY_BID" | "MY_PUBLISH">("ALL");
+  const [role, setRole] = useState<UserRole>(null);
 
   const loadProjects = async (nextKeyword: string) => {
     try {
@@ -61,8 +64,26 @@ export default function ProjectsPage() {
   };
 
   useEffect(() => {
-    void loadProjects(queryKeyword);
+    const init = async () => {
+      try {
+        const meResponse = await fetch("/api/v1/auth/me", { credentials: "include" });
+        const meJson = (await meResponse.json()) as { data?: { role?: UserRole } };
+        if (meResponse.ok && meJson.data?.role) {
+          setRole(meJson.data.role);
+        }
+      } catch {
+        // 未登录时列表接口会失败，role 保持 null
+      }
+      await loadProjects(queryKeyword);
+    };
+    void init();
   }, []);
+
+  useEffect(() => {
+    if (role === "CLIENT" && (tab === "CAN_BID" || tab === "MY_BID")) {
+      setTab("ALL");
+    }
+  }, [role, tab]);
 
   const publishProject = async (projectId: string) => {
     setPublishingId(projectId);
@@ -153,18 +174,33 @@ export default function ProjectsPage() {
     );
   }, [loading, error, visibleProjects, publishingId]);
 
-  const tabItems: Array<{ key: "ALL" | "CAN_BID" | "MY_BID" | "MY_PUBLISH"; label: string }> = [
-    { key: "ALL", label: "全部项目" },
-    { key: "CAN_BID", label: "可投标" },
-    { key: "MY_BID", label: "我已投标" },
-    { key: "MY_PUBLISH", label: "我发布的" }
-  ];
+  const tabItems = useMemo(() => {
+    const all: Array<{ key: "ALL" | "CAN_BID" | "MY_BID" | "MY_PUBLISH"; label: string }> = [
+      { key: "ALL", label: "全部项目" },
+      { key: "CAN_BID", label: "可投标" },
+      { key: "MY_BID", label: "我已投标" },
+      { key: "MY_PUBLISH", label: "我发布的" }
+    ];
+    if (role === null) {
+      return [{ key: "ALL" as const, label: "全部项目" }];
+    }
+    if (role === "CLIENT") {
+      return [
+        { key: "ALL" as const, label: "全部项目" },
+        { key: "MY_PUBLISH" as const, label: "我发布的" }
+      ];
+    }
+    return all;
+  }, [role]);
 
   return (
     <main className="platform-page">
       <header className="platform-page-header">
         <h1>项目广场</h1>
-        <p>公开项目、可投标项目、我已投标项目与我发布项目统一汇总展示。</p>
+        <p>
+          广场展示所有已发布（非草稿）的公开项目。甲方草稿仅创建者可见。
+          {role === "CLIENT" ? " 甲方账号请使用「全部项目」浏览他人项目；「可投标」仅开发者可见。" : null}
+        </p>
       </header>
 
       <section className="platform-panel">

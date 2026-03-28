@@ -30,8 +30,12 @@ function ProfileClient() {
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  /** 仅资料/头像/能力验证 */
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+  /** 仅修改密码流程 */
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [bio, setBio] = useState("");
@@ -62,7 +66,7 @@ function ProfileClient() {
         const response = await fetch("/api/v1/profile/me", { credentials: "include" });
         const result = (await response.json()) as { message?: string; data?: ProfileData };
         if (!response.ok || !result.data) {
-          setError(result.message ?? "加载资料失败");
+          setProfileError(result.message ?? "加载资料失败");
           return;
         }
         setProfile(result.data);
@@ -82,7 +86,7 @@ function ProfileClient() {
           }
         }
       } catch {
-        setError("网络异常，请稍后重试");
+        setProfileError("网络异常，请稍后重试");
       } finally {
         setLoading(false);
       }
@@ -94,7 +98,7 @@ function ProfileClient() {
     const token = searchParams?.get("verificationToken") ?? "";
     if (token) {
       setPasswordVerificationToken(token);
-      setSuccess("已获取邮箱验证令牌，请继续提交改密");
+      setPasswordSuccess("已获取邮箱验证令牌，请在下方「修改密码」区域完成改密");
     }
   }, [searchParams]);
 
@@ -104,8 +108,8 @@ function ProfileClient() {
       return;
     }
     setSaving(true);
-    setError(null);
-    setSuccess(null);
+    setProfileError(null);
+    setProfileSuccess(null);
     const body =
       profile.role === "CLIENT"
         ? {
@@ -129,14 +133,14 @@ function ProfileClient() {
       const result = (await response.json()) as { message?: string; data?: ProfileData };
       if (!response.ok || !result.data) {
         const detailMessage = (result as { data?: { issues?: Array<{ message?: string }> } }).data?.issues?.[0]?.message;
-        setError(detailMessage ?? result.message ?? "保存失败");
+        setProfileError(detailMessage ?? result.message ?? "保存失败");
         return;
       }
       setProfile(result.data);
       setAvatarUrl(result.data.avatarUrl ?? "");
-      setSuccess("资料已保存");
+      setProfileSuccess("资料已保存");
     } catch {
-      setError("网络异常，请稍后重试");
+      setProfileError("网络异常，请稍后重试");
     } finally {
       setSaving(false);
     }
@@ -144,7 +148,7 @@ function ProfileClient() {
 
   const handleUploadAvatar = async (file: File) => {
     setUploading(true);
-    setError(null);
+    setProfileError(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -155,13 +159,13 @@ function ProfileClient() {
       });
       const result = (await response.json()) as { message?: string; data?: { url: string } };
       if (!response.ok || !result.data?.url) {
-        setError(result.message ?? "头像上传失败");
+        setProfileError(result.message ?? "头像上传失败");
         return;
       }
       setAvatarUrl(result.data.url);
-      setSuccess("头像上传成功，记得保存资料");
+      setProfileSuccess("头像上传成功，记得点击「保存资料」写入账户");
     } catch {
-      setError("网络异常，请稍后重试");
+      setProfileError("网络异常，请稍后重试");
     } finally {
       setUploading(false);
     }
@@ -172,16 +176,16 @@ function ProfileClient() {
       return;
     }
     if (capability.capabilityPassed) {
-      setSuccess("你已通过能力验证，无需重复验证");
+      setProfileSuccess("你已通过能力验证，无需重复验证");
       return;
     }
     if (Object.keys(answers).length < capability.questions.length) {
-      setError("请先完成所有题目");
+      setProfileError("请先完成所有题目");
       return;
     }
     setVerifyingCapability(true);
-    setError(null);
-    setSuccess(null);
+    setProfileError(null);
+    setProfileSuccess(null);
     try {
       const response = await fetch("/api/v1/developer/capability/verify", {
         method: "POST",
@@ -199,7 +203,7 @@ function ProfileClient() {
         data?: { capabilityPassed: boolean; score: number; passScore: number; idempotent?: boolean };
       };
       if (!response.ok || !result.data) {
-        setError(result.message ?? "能力验证失败");
+        setProfileError(result.message ?? "能力验证失败");
         return;
       }
       setCapability((current) =>
@@ -210,9 +214,9 @@ function ProfileClient() {
             }
           : current
       );
-      setSuccess(`能力验证通过（得分 ${result.data.score}/${capability.questions.length}），后续无需重复验证`);
+      setProfileSuccess(`能力验证通过（得分 ${result.data.score}/${capability.questions.length}），后续无需重复验证`);
     } catch {
-      setError("网络异常，请稍后重试");
+      setProfileError("网络异常，请稍后重试");
     } finally {
       setVerifyingCapability(false);
     }
@@ -220,8 +224,8 @@ function ProfileClient() {
 
   const requestPasswordVerification = async () => {
     setRequestingPasswordVerification(true);
-    setError(null);
-    setSuccess(null);
+    setPasswordError(null);
+    setPasswordSuccess(null);
     try {
       const response = await fetch("/api/v1/auth/password/change/request-verification", {
         method: "POST",
@@ -232,19 +236,19 @@ function ProfileClient() {
         data?: { verificationToken?: string; verifyUrl?: string };
       };
       if (!response.ok) {
-        setError(result.message ?? "邮箱验证申请失败");
+        setPasswordError(result.message ?? "邮箱验证申请失败");
         return;
       }
       if (result.data?.verificationToken) {
         setPasswordVerificationToken(result.data.verificationToken);
       }
       if (result.data?.verifyUrl) {
-        setSuccess(`邮箱验证已发送。开发环境调试链接：${result.data.verifyUrl}`);
+        setPasswordSuccess(`邮箱验证已发送。开发环境调试链接：${result.data.verifyUrl}`);
       } else {
-        setSuccess("邮箱验证已发送，请查收邮箱后完成改密。");
+        setPasswordSuccess("邮箱验证已发送，请查收邮箱后完成改密。");
       }
     } catch {
-      setError("网络异常，请稍后重试");
+      setPasswordError("网络异常，请稍后重试");
     } finally {
       setRequestingPasswordVerification(false);
     }
@@ -252,16 +256,16 @@ function ProfileClient() {
 
   const changePassword = async () => {
     if (!passwordVerificationToken.trim()) {
-      setError("请先完成邮箱验证");
+      setPasswordError("请先完成邮箱验证");
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      setError("两次新密码输入不一致");
+      setPasswordError("两次新密码输入不一致");
       return;
     }
     setChangingPassword(true);
-    setError(null);
-    setSuccess(null);
+    setPasswordError(null);
+    setPasswordSuccess(null);
     try {
       const response = await fetch("/api/v1/auth/password/change", {
         method: "POST",
@@ -275,16 +279,16 @@ function ProfileClient() {
       });
       const result = (await response.json()) as { message?: string };
       if (!response.ok) {
-        setError(result.message ?? "修改密码失败");
+        setPasswordError(result.message ?? "修改密码失败");
         return;
       }
       setCurrentPassword("");
       setNewPassword("");
       setConfirmNewPassword("");
       setPasswordVerificationToken("");
-      setSuccess("密码修改成功，请使用新密码重新登录。");
+      setPasswordSuccess("密码修改成功，请使用新密码重新登录。");
     } catch {
-      setError("网络异常，请稍后重试");
+      setPasswordError("网络异常，请稍后重试");
     } finally {
       setChangingPassword(false);
     }
@@ -295,7 +299,7 @@ function ProfileClient() {
   }
 
   if (!profile) {
-    return <main className="platform-page"><div className="empty-state">{error ?? "资料不存在"}</div></main>;
+    return <main className="platform-page"><div className="empty-state">{profileError ?? "资料不存在"}</div></main>;
   }
 
   return (
@@ -410,78 +414,84 @@ function ProfileClient() {
             </>
           )}
 
-          <section className="platform-panel nested-panel">
-            <h3>修改密码（需邮箱验证）</h3>
-            <p className="small-tip">
-              安全要求：忘记密码与登录后改密都必须先完成邮箱验证。
-            </p>
-            <div className="inline-actions">
-              <button
-                type="button"
-                className="mini-action-btn"
-                onClick={requestPasswordVerification}
-                disabled={requestingPasswordVerification}
-              >
-                {requestingPasswordVerification ? "发送中..." : "发送邮箱验证"}
-              </button>
-            </div>
-            <div className="project-form">
-              <label>
-                邮箱验证令牌
-                <input
-                  value={passwordVerificationToken}
-                  onChange={(event) => setPasswordVerificationToken(event.target.value)}
-                  placeholder="邮箱验证后获得（开发环境可自动回填）"
-                  required
-                />
-              </label>
-              <label>
-                当前密码
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(event) => setCurrentPassword(event.target.value)}
-                  minLength={8}
-                  required
-                />
-              </label>
-              <label>
-                新密码
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  minLength={8}
-                  required
-                />
-              </label>
-              <label>
-                确认新密码
-                <input
-                  type="password"
-                  value={confirmNewPassword}
-                  onChange={(event) => setConfirmNewPassword(event.target.value)}
-                  minLength={8}
-                  required
-                />
-              </label>
-              <button
-                type="button"
-                className="mini-action-btn"
-                onClick={() => void changePassword()}
-                disabled={changingPassword}
-              >
-                {changingPassword ? "提交中..." : "确认修改密码"}
-              </button>
-            </div>
-          </section>
-
-          {error ? <div className="form-error">{error}</div> : null}
-          {success ? <div className="form-success">{success}</div> : null}
+          {profileError ? <div className="form-error">{profileError}</div> : null}
+          {profileSuccess ? <div className="form-success">{profileSuccess}</div> : null}
           <button type="submit" className="btn btn-primary auth-submit-btn" disabled={saving}>
             {saving ? "保存中..." : "保存资料"}
           </button>
           {uploading ? <p className="small-tip">头像上传中...</p> : null}
+        </form>
+      </section>
+
+      <section className="platform-panel">
+        <header className="platform-page-header" style={{ marginBottom: 12 }}>
+          <h2 style={{ fontSize: "1.25rem" }}>修改密码</h2>
+          <p className="small-tip" style={{ marginTop: 4 }}>
+            与上方「保存资料」独立：此处仅处理邮箱验证与密码修改，不会提交资料表单。
+          </p>
+        </header>
+        <p className="small-tip">安全要求：登录后改密需先完成邮箱验证（或从邮件链接携带令牌进入本页）。</p>
+        <div className="inline-actions" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            className="mini-action-btn"
+            onClick={() => void requestPasswordVerification()}
+            disabled={requestingPasswordVerification}
+          >
+            {requestingPasswordVerification ? "发送中..." : "发送邮箱验证"}
+          </button>
+        </div>
+        <form
+          className="project-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void changePassword();
+          }}
+        >
+          <label>
+            邮箱验证令牌
+            <input
+              value={passwordVerificationToken}
+              onChange={(event) => setPasswordVerificationToken(event.target.value)}
+              placeholder="邮箱验证后获得（开发环境可自动回填）"
+              autoComplete="one-time-code"
+            />
+          </label>
+          <label>
+            当前密码
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              minLength={8}
+              autoComplete="current-password"
+            />
+          </label>
+          <label>
+            新密码
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              minLength={8}
+              autoComplete="new-password"
+            />
+          </label>
+          <label>
+            确认新密码
+            <input
+              type="password"
+              value={confirmNewPassword}
+              onChange={(event) => setConfirmNewPassword(event.target.value)}
+              minLength={8}
+              autoComplete="new-password"
+            />
+          </label>
+          {passwordError ? <div className="form-error">{passwordError}</div> : null}
+          {passwordSuccess ? <div className="form-success">{passwordSuccess}</div> : null}
+          <button type="submit" className="btn btn-primary auth-submit-btn" disabled={changingPassword}>
+            {changingPassword ? "提交中..." : "确认修改密码"}
+          </button>
         </form>
       </section>
     </main>
