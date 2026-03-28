@@ -665,7 +665,7 @@ docker compose exec web npm run prisma:deploy
 
 可选：
 - `REDIS_URL`（用于分布式锁/限流/队列；不填会降级为内存锁/内存限流）
-- `BLOB_READ_WRITE_TOKEN` 或 `VERCEL_BLOB_READ_WRITE_TOKEN`（**头像文件上传**：Vercel Dashboard → **Storage** → **Blob** → 创建 Blob Store → 将 **Read/Write Token** 加到环境变量；接口 `POST /api/v1/files/avatar` 会写入 Blob 并返回公网 URL；部分项目控制台可能生成 `VERCEL_BLOB_READ_WRITE_TOKEN`，二者任选其一配置即可）
+- `BLOB_READ_WRITE_TOKEN` 或 `VERCEL_BLOB_READ_WRITE_TOKEN`（**头像文件上传**：Vercel → **Storage** → **Blob** → 创建 Store 并将 **Read/Write Token** 配到本项目环境变量。若 Store 为 **仅私有（private）**，上传会自动改为 `private` 对象，并通过本站 **`/api/v1/files/avatar-media/...`** 代理出图（无需改 Store）。若希望直接使用 Vercel 公网直链，请在控制台将 Store 设为允许 **public** 对象。可选：`BLOB_PUT_ACCESS=private` 强制走私有上传 + 代理，跳过首次 `public` 尝试。）
 - `EMAIL_VERIFY_RATE_LIMIT_DISABLED=true`（仅调试：关闭邮箱验证链接请求限流）
 
 ### 26.3.1 注册与邮箱验证流程

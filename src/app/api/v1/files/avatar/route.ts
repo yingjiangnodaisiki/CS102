@@ -6,7 +6,9 @@ import { fail, ok } from "@/lib/utils/api-response";
 import { AppError, isAppErrorLike } from "@/lib/errors/AppError";
 import {
   avatarContentTypeForExt,
+  avatarMediaProxyUrl,
   getBlobReadWriteToken,
+  isPrivateStorePublicUploadError,
   resolveAvatarExtension
 } from "@/lib/utils/avatar-upload";
 
@@ -58,14 +60,33 @@ export async function POST(request: NextRequest) {
     if (blobToken) {
       try {
         const { put } = await import("@vercel/blob");
-        const blob = await put(`avatars/${fileName}`, bytes, {
-          access: "public",
+        const objectPath = `avatars/${fileName}`;
+        const putBase = {
           addRandomSuffix: false,
           allowOverwrite: true,
           token: blobToken,
           contentType: avatarContentTypeForExt(ext)
-        });
-        return ok({ url: blob.url }, 201);
+        } as const;
+
+        const forcePrivate = process.env.BLOB_PUT_ACCESS?.trim().toLowerCase() === "private";
+
+        if (forcePrivate) {
+          const blob = await put(objectPath, bytes, { ...putBase, access: "private" });
+          return ok({ url: avatarMediaProxyUrl(blob.pathname) }, 201);
+        }
+
+        try {
+          const blob = await put(objectPath, bytes, { ...putBase, access: "public" });
+          return ok({ url: blob.url }, 201);
+        } catch (first: unknown) {
+          const msg = first instanceof Error ? first.message : String(first);
+          if (!isPrivateStorePublicUploadError(msg)) {
+            throw first;
+          }
+          console.info("[avatar] blob store is private; using private put + app proxy URL");
+          const blob = await put(objectPath, bytes, { ...putBase, access: "private" });
+          return ok({ url: avatarMediaProxyUrl(blob.pathname) }, 201);
+        }
       } catch (e: unknown) {
         return blobFailureResponse(e);
       }

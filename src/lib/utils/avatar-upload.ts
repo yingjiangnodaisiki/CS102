@@ -88,3 +88,14 @@ const extToContentType: Record<string, string> = {
 export function avatarContentTypeForExt(ext: string): string {
   return extToContentType[ext] ?? "application/octet-stream";
 }
+
+/** Vercel Blob：私有 Store 不允许 `access: "public"` 上传时的 SDK 报错文案片段 */
+export function isPrivateStorePublicUploadError(message: string): boolean {
+  return /private store|public access on a private/i.test(message);
+}
+
+/** 返回经本站代理的头像 URL（用于私有 Blob，供 img src 使用） */
+export function avatarMediaProxyUrl(blobPathname: string): string {
+  const parts = blobPathname.split("/").filter(Boolean);
+  return `/api/v1/files/avatar-media/${parts.map(encodeURIComponent).join("/")}`;
+}
