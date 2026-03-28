@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 import { NextRequest } from "next/server";
+import { put } from "@vercel/blob";
 import { getAuthUser } from "@/lib/auth/get-auth-user";
 import { fail, ok } from "@/lib/utils/api-response";
 import { AppError } from "@/lib/errors/AppError";
@@ -20,14 +21,6 @@ const allowedMimeToExt: Record<string, string> = {
 export async function POST(request: NextRequest) {
   try {
     await getAuthUser();
-    // Vercel Serverless 环境无持久化磁盘，public/uploads 写入会失败或不可用
-    if (process.env.VERCEL === "1") {
-      throw new AppError(
-        "FILE_STORAGE_UNAVAILABLE",
-        "当前演示环境不支持头像文件上传，请改用“头像地址（URL）”字段填写公网图片链接",
-        503
-      );
-    }
     const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {
@@ -41,8 +34,28 @@ export async function POST(request: NextRequest) {
       throw new AppError("FILE_TOO_LARGE", "头像文件不能超过2MB", 422);
     }
 
-    const bytes = Buffer.from(await file.arrayBuffer());
     const fileName = `${randomUUID()}${ext}`;
+
+    // Vercel：使用 Blob 存储（需在环境变量中配置 BLOB_READ_WRITE_TOKEN）
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      const blob = await put(`avatars/${fileName}`, file, {
+        access: "public",
+        addRandomSuffix: false
+      });
+      return ok({ url: blob.url }, 201);
+    }
+
+    // Vercel 且无 Blob：无法写本地磁盘
+    if (process.env.VERCEL === "1") {
+      throw new AppError(
+        "FILE_STORAGE_UNAVAILABLE",
+        "当前环境未配置对象存储。请在 Vercel 项目设置中新增 BLOB_READ_WRITE_TOKEN（Storage → Create → 复制 Token），或改用「头像地址（URL）」",
+        503
+      );
+    }
+
+    // 本地 / 自建 Docker：写入 public/uploads
+    const bytes = Buffer.from(await file.arrayBuffer());
     const relativeDir = "/uploads/avatars";
     const fullDir = path.join(process.cwd(), "public", "uploads", "avatars");
     await mkdir(fullDir, { recursive: true });

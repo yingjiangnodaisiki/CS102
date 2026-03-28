@@ -663,8 +663,9 @@ docker compose exec web npm run prisma:deploy
 
 可选：
 - `REDIS_URL`（用于分布式锁/限流/队列；不填会降级为内存锁/内存限流）
+- `BLOB_READ_WRITE_TOKEN`（**头像文件上传**：Vercel Dashboard → **Storage** → **Blob** → 创建 Blob Store → 将 **Read/Write Token** 加到环境变量；接口 `POST /api/v1/files/avatar` 会写入 Blob 并返回公网 URL）
 - SMTP 相关（邮件功能需要）：`SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM`
 
 ### 26.4 免费层注意事项（重要）
-- 文件上传到 `public/uploads/*` 在 Serverless 环境**不可持久化**，仅适合 Demo；生产需接入 OSS/S3。
+- **头像上传**：Vercel 上已接入 `@vercel/blob`；配置 `BLOB_READ_WRITE_TOKEN` 后即可使用本地上传控件。未配置时仍可填「头像地址（URL）」。自建 Docker/本地开发仍写入 `public/uploads/avatars`。
 - Socket.io 长连接在 Vercel 免费层不适合长期稳定在线（Demo 可以暂时不依赖实时能力）。
