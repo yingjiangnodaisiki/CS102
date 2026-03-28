@@ -44,7 +44,7 @@ export class WalletService {
 
   static async getWalletOverviewByUserId(userId: string): Promise<WalletOverviewView> {
     const wallet = await this.getWalletByUserId(userId);
-    const transactions = await WalletRepository.listRecentTransactionsByUser(userId, 20);
+    const transactions = await WalletRepository.listRecentTransactionsByUser(userId, 50);
     return {
       ...wallet,
       recentTransactions: transactions.map((item) => ({

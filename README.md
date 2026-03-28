@@ -10,6 +10,29 @@
 - 基础支付托管（托管下单、支付回调冻结、里程碑放款）
 - 退款与仲裁触发（托管退款、争议申请、自动仲裁）
 
+## 自检：管理员与资金演示
+
+### 管理员账号（须由你在自己环境生成）
+
+AI **无法**获知你 Neon / Vercel 上的真实密码。请在本机或 CI 配置好 `DATABASE_URL` 后执行：
+
+```bash
+ADMIN_EMAIL=你的邮箱 ADMIN_PASSWORD='至少8位的强密码' npm run admin:bootstrap
+```
+
+然后用该邮箱在 `/login` 登录，访问 `/admin` 各模块。
+
+若**未**设置 `ADMIN_EMAIL`、`ADMIN_PASSWORD`，脚本使用占位默认值：**邮箱 `admin@ai-dev.local`，密码 `Admin12345!`**（仅便于本地首次初始化；**生产环境请务必改成自己的强密码并勿把密码提交到 Git**）。
+
+### 模拟充值与模拟托管支付（生产默认关闭）
+
+- **开发模式**：资金页、项目页可使用模拟充值 / 模拟支付做联调。
+- **生产环境**：`POST /api/v1/payments/deposit/mock` 与托管「模拟支付成功」默认 **403**。若需线上自检，在 Vercel 同时设置 **`ALLOW_MOCK_PAYMENT=true`** 与 **`NEXT_PUBLIC_ALLOW_MOCK_PAYMENT=true`** 并重新部署。
+
+### 项目内申请平台仲裁
+
+已签约（存在合约）的**甲方或中标乙方**在项目详情页可使用 **「申请平台仲裁」**，请求体与 `POST /api/v1/disputes` 一致；管理员在 **`/admin/disputes`** 裁决。
+
 ## 1) 接口设计
 
 ### POST `/api/v1/auth/register`

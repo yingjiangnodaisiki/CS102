@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { getAuthUser } from "@/lib/auth/get-auth-user";
 import { AppError } from "@/lib/errors/AppError";
 import { fail, ok } from "@/lib/utils/api-response";
+import { assertMockPaymentAllowed } from "@/lib/utils/mock-payment-guard";
 import { mockTopupSchema } from "@/lib/validations/payment";
 import { WalletService } from "@/lib/services/wallet/WalletService";
 
@@ -13,6 +14,7 @@ import { WalletService } from "@/lib/services/wallet/WalletService";
  */
 export async function POST(request: NextRequest) {
   try {
+    assertMockPaymentAllowed("模拟充值");
     const actor = await getAuthUser();
     const body: unknown = await request.json();
     const input = mockTopupSchema.parse(body);

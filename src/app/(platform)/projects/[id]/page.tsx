@@ -3,6 +3,9 @@
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+const showMockPayment =
+  process.env.NODE_ENV === "development" || process.env.NEXT_PUBLIC_ALLOW_MOCK_PAYMENT === "true";
+
 interface ProjectDetail {
   id: string;
   title: string;
@@ -65,6 +68,12 @@ export default function ProjectDetailPage() {
   const [acceptingBidId, setAcceptingBidId] = useState<string | null>(null);
   const [approvedSubmissionReady, setApprovedSubmissionReady] = useState(false);
   const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [disputeAmount, setDisputeAmount] = useState("");
+  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeEscrowId, setDisputeEscrowId] = useState("");
+  const [disputeSubmitting, setDisputeSubmitting] = useState(false);
+  const [disputeInfo, setDisputeInfo] = useState<string | null>(null);
+  const [disputeError, setDisputeError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -250,6 +259,67 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const canApplyPlatformDispute = useMemo(() => {
+    if (!me || !project || !acceptedBid) {
+      return false;
+    }
+    if (me.role !== "CLIENT" && me.role !== "DEVELOPER") {
+      return false;
+    }
+    const isClientParty = me.userId === project.clientId;
+    const isDeveloperParty = me.userId === acceptedBid.developerId;
+    return isClientParty || isDeveloperParty;
+  }, [me, project, acceptedBid]);
+
+  const submitPlatformDispute = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!project) {
+      return;
+    }
+    setDisputeSubmitting(true);
+    setDisputeError(null);
+    setDisputeInfo(null);
+    try {
+      const amountNum = Number(disputeAmount);
+      const body: {
+        projectId: string;
+        amount: number;
+        reason: string;
+        escrowOrderId?: string;
+      } = {
+        projectId: project.id,
+        amount: amountNum,
+        reason: disputeReason.trim()
+      };
+      const escrowTrim = disputeEscrowId.trim();
+      if (escrowTrim.length > 0) {
+        body.escrowOrderId = escrowTrim;
+      }
+      const response = await fetch("/api/v1/disputes", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const result = (await response.json()) as {
+        message?: string;
+        data?: { dispute?: { status?: string; id?: string }; idempotent?: boolean };
+      };
+      if (!response.ok) {
+        setDisputeError(result.message ?? "申请失败");
+        return;
+      }
+      const st = result.data?.dispute?.status ?? "已提交";
+      setDisputeInfo(
+        result.data?.idempotent ? `争议单已存在，当前状态：${st}` : `已提交平台仲裁申请，状态：${st}`
+      );
+    } catch {
+      setDisputeError("网络异常，请稍后重试");
+    } finally {
+      setDisputeSubmitting(false);
+    }
+  };
+
   const acceptBid = async (bidId: string) => {
     if (!project) {
       return;
@@ -428,15 +498,71 @@ export default function ProjectDetailPage() {
                 {escrowOrderNo ? (
                   <div className="inline-actions" style={{ marginTop: 10 }}>
                     <span className="small-tip">订单号：{escrowOrderNo}</span>
-                    <button type="button" onClick={() => mockPayOrder(escrowOrderNo)} disabled={payingOrderNo === escrowOrderNo}>
-                      {payingOrderNo === escrowOrderNo ? "支付中..." : "模拟支付成功"}
-                    </button>
+                    {showMockPayment ? (
+                      <button
+                        type="button"
+                        onClick={() => mockPayOrder(escrowOrderNo)}
+                        disabled={payingOrderNo === escrowOrderNo}
+                      >
+                        {payingOrderNo === escrowOrderNo ? "支付中..." : "模拟支付成功"}
+                      </button>
+                    ) : (
+                      <span className="small-tip">正式环境已关闭模拟支付；请走真实托管支付回调。</span>
+                    )}
                   </div>
                 ) : null}
               </>
             ) : (
               <p className="small-tip">当前暂无 ACCEPTED 状态投标，无法支付。</p>
             )}
+          </section>
+        ) : null}
+
+        {canApplyPlatformDispute ? (
+          <section className="platform-panel nested-panel">
+            <h3>申请平台仲裁</h3>
+            <p className="small-tip">
+              已签约（已产生合约）的甲方或乙方可发起争议。金额超过 ¥5000 将自动进入仲裁中；否则需双方均发起后进入仲裁。管理员在「管理中心 → 仲裁处理」裁决。
+            </p>
+            {disputeInfo ? <div className="form-success">{disputeInfo}</div> : null}
+            {disputeError ? <div className="form-error">{disputeError}</div> : null}
+            <form className="project-form" onSubmit={submitPlatformDispute}>
+              <label>
+                争议涉及金额（元）
+                <input
+                  type="number"
+                  min={0.01}
+                  step="0.01"
+                  value={disputeAmount}
+                  onChange={(event) => setDisputeAmount(event.target.value)}
+                  placeholder="例如中标金额或托管金额"
+                  required
+                />
+              </label>
+              <label>
+                托管订单主键（选填，EscrowOrder.id 的 UUID，非 orderNo）
+                <input
+                  value={disputeEscrowId}
+                  onChange={(event) => setDisputeEscrowId(event.target.value)}
+                  placeholder="可在数据库 escrow_orders.id 查看；不填则仅关联项目争议"
+                />
+              </label>
+              <label>
+                事由说明（至少 10 字）
+                <textarea
+                  value={disputeReason}
+                  onChange={(event) => setDisputeReason(event.target.value)}
+                  minLength={10}
+                  maxLength={2000}
+                  rows={4}
+                  required
+                  placeholder="请说明争议背景、已沟通情况等"
+                />
+              </label>
+              <button type="submit" className="mini-action-btn" disabled={disputeSubmitting}>
+                {disputeSubmitting ? "提交中..." : "提交仲裁申请"}
+              </button>
+            </form>
           </section>
         ) : null}
 
